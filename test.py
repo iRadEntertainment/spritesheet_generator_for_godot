@@ -159,7 +159,7 @@ def make_spritesheet_from_frames(frame_paths, frame_w, frame_h, frames_per_row, 
         if img_width != frame_w or img_height != frame_h:
             print(f"Warning: {path} size {img_width}x{img_height} != expected {frame_w}x{frame_h}")
         
-        frame_pixels = list(img.pixels[:])
+        frame_pixels = list(img.pixels[:]) # type: ignore
 
         # Copy row by row into sheet
         for fy in range(frame_h):

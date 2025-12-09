@@ -221,13 +221,14 @@ class SGG_OT_execute_batch(Operator):
         key = (self._action_index, direction_index)
         self._frame_paths.setdefault(key, []).append(filepath)
 
+
     def _assemble_spritesheets(self, context: Context) -> None:
         """Build spritesheets from the rendered frame PNGs.
 
-        Current strategy:
-        - One spritesheet per (armature, action, direction)
-        - All frames for that direction in a single horizontal row
-        - Frame size inferred from the first frame image
+        Strategy:
+        - One spritesheet per (armature, action)
+        - Directions become rows
+        - Frames become columns
         """
         if self._plan is None:
             return
@@ -235,30 +236,49 @@ class SGG_OT_execute_batch(Operator):
         scene: Scene = context.scene
         settings: SGG_GlobalSettings = scene.sgg_settings  # type: ignore[attr-defined]
 
+        # Group frame paths by action index, then by direction index
+        # actions_group[action_index][direction_index] -> [paths]
+        actions_group: Dict[int, Dict[int, list[str]]] = {}
         for (action_index, direction_index), frame_paths in self._frame_paths.items():
             if not frame_paths:
                 continue
+            actions_group.setdefault(action_index, {})[direction_index] = frame_paths
 
-            # Make sure we have a valid action plan
+        for action_index, dirs_dict in actions_group.items():
             if action_index < 0 or action_index >= len(self._plan.actions):
                 continue
+
             action_plan = self._plan.actions[action_index]
             arm_obj = action_plan.armature_obj
             action = action_plan.action
 
-            # Infer frame size from the first image
+            # Sort directions so rows are in a stable order (0..N-1)
+            direction_indices = sorted(dirs_dict.keys())
+            if not direction_indices:
+                continue
+
+            # Use the first direction + first frame to infer frame size
+            first_dir = direction_indices[0]
+            first_paths = dirs_dict[first_dir]
+            if not first_paths:
+                continue
+
             try:
-                first_img = bpy.data.images.load(frame_paths[0])
+                first_img = bpy.data.images.load(first_paths[0])
             except RuntimeError:
-                # If we can't load the first frame, skip this spritesheet
+                print(f"[SGG] Could not load first frame image: {first_paths[0]}")
                 continue
 
             frame_w, frame_h = first_img.size
             bpy.data.images.remove(first_img)
 
-            num_frames = len(frame_paths)
-            cols = num_frames  # one row for now
-            rows = 1
+            # Assume all directions have same frame count; use the max to be safe
+            max_frames = max(len(paths) for paths in dirs_dict.values())
+            if max_frames == 0:
+                continue
+
+            cols = max_frames
+            rows = len(direction_indices)
 
             sheet_w = frame_w * cols
             sheet_h = frame_h * rows
@@ -274,49 +294,51 @@ class SGG_OT_execute_batch(Operator):
             # Initialize transparent pixels
             sheet_pixels = [0.0] * (sheet_w * sheet_h * 4)
 
-            # Fill the sheet
-            for idx, path in enumerate(frame_paths):
-                col = idx % cols
-                row = rows - 1 - (idx // cols)  # flip vertically
+            # Fill the sheet: each direction is one row, each frame is one column
+            for row_idx, dir_idx in enumerate(direction_indices):
+                frame_paths = dirs_dict[dir_idx]
+                for col_idx, path in enumerate(frame_paths):
+                    if col_idx >= cols:
+                        break
 
-                try:
-                    img = bpy.data.images.load(path)
-                except RuntimeError:
-                    print(f"[SGG] Could not load frame image: {path}")
-                    continue
+                    try:
+                        img = bpy.data.images.load(path)
+                    except RuntimeError:
+                        print(f"[SGG] Could not load frame image: {path}")
+                        continue
 
-                img_width, img_height = img.size
-                if img_width != frame_w or img_height != frame_h:
-                    print(
-                        f"[SGG] Warning: {path} size {img_width}x{img_height} "
-                        f"!= expected {frame_w}x{frame_h}"
-                    )
+                    img_width, img_height = img.size
+                    if img_width != frame_w or img_height != frame_h:
+                        print(
+                            f"[SGG] Warning: {path} size {img_width}x{img_height} "
+                            f"!= expected {frame_w}x{frame_h}"
+                        )
 
-                frame_pixels = list(img.pixels[:]) # type: ignore
+                    frame_pixels = list(img.pixels[:]) # type: ignore
 
-                # Copy row by row into the sheet
-                for fy in range(frame_h):
-                    sy = row * frame_h + fy
-                    frame_row_start = fy * frame_w * 4
-                    frame_row_end = frame_row_start + frame_w * 4
+                    # Blender image origin is bottom-left, so flip vertically:
+                    dest_row = rows - 1 - row_idx
 
-                    sheet_row_start = (sy * sheet_w + col * frame_w) * 4
-                    sheet_row_end = sheet_row_start + frame_w * 4
+                    for fy in range(frame_h):
+                        sy = dest_row * frame_h + fy
+                        frame_row_start = fy * frame_w * 4
+                        frame_row_end = frame_row_start + frame_w * 4
 
-                    sheet_pixels[sheet_row_start:sheet_row_end] = frame_pixels[
-                        frame_row_start:frame_row_end
-                    ]
+                        sheet_row_start = (sy * sheet_w + col_idx * frame_w) * 4
+                        sheet_row_end = sheet_row_start + frame_w * 4
 
-                bpy.data.images.remove(img)
+                        sheet_pixels[sheet_row_start:sheet_row_end] = frame_pixels[
+                            frame_row_start:frame_row_end
+                        ]
+
+                    bpy.data.images.remove(img)
 
             sheet.pixels = sheet_pixels
 
-            # Build spritesheet filepath
+            # Build spritesheet filepath, one per (armature, action)
             safe_arm_name = arm_obj.name.replace(" ", "_")
             safe_action_name = action.name.replace(" ", "_")
-            sheet_filename = (
-                f"{safe_arm_name}_{safe_action_name}_dir{direction_index:02d}_sheet.png"
-            )
+            sheet_filename = f"{safe_arm_name}_{safe_action_name}_sheet.png"
             sheet_path = os.path.join(self._output_dir, sheet_filename)
 
             sheet.filepath_raw = sheet_path
@@ -326,11 +348,13 @@ class SGG_OT_execute_batch(Operator):
 
             # Permanently delete individual frames if requested
             if getattr(settings, "delete_frame_pngs", False):
-                for p in frame_paths:
-                    try:
-                        os.remove(p)  # permanent delete, no trash bin
-                    except OSError:
-                        pass
+                for paths in dirs_dict.values():
+                    for p in paths:
+                        try:
+                            os.remove(p)
+                        except OSError:
+                            pass
+
 
     def _finish_batch(self, context: Context, cancelled: bool) -> None:
         """Restore scene state, optionally pack spritesheets, and remove the modal timer."""
