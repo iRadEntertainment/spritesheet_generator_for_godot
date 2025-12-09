@@ -33,6 +33,15 @@ class SGG_PT_main_panel(Panel):
         col.prop(settings, "frame_step")
         col.prop(settings, "use_action_range")
 
+        box = layout.box()
+        box.label(text="Output")
+        box.prop(settings, "output_dir")
+        box.prop(
+            settings,
+            "delete_frame_pngs",
+            text="Delete frame PNGs after packing",
+        )
+
         layout.separator()
 
         # --- Renderer recap (read-only) ---

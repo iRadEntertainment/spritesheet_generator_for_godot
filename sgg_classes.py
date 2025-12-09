@@ -8,6 +8,7 @@ from bpy.props import (
     IntProperty,
     BoolProperty,
     CollectionProperty,
+    FloatProperty,
 )
 
 
@@ -47,6 +48,24 @@ class SGG_GlobalSettings(PropertyGroup):
         default=True,
         description="Use each action's own frame range by default",
     )
+    last_frame_render_seconds: FloatProperty(
+        name="Last Frame Render Time",
+        default=0.0,
+        min=0.0,
+        description=(
+            "Duration in seconds of the most recently measured single-frame render "
+            "in this Blender session. Used for time estimation."
+        ),
+    )
+    delete_frame_pngs: BoolProperty(
+        name="Delete Frame PNGs",
+        default=True,
+        description=(
+            "Delete individual per-frame PNG files after spritesheets have been "
+            "assembled. Uses permanent deletion (files will not be moved to the OS "
+            "trash/recycle bin)."
+        ),
+    )
 
 
 class SGG_ActionPlanItem(PropertyGroup):
@@ -79,6 +98,14 @@ class SGG_ActionPlanItem(PropertyGroup):
         name="Action",
         type=bpy.types.Action,
         description="Underlying Blender Action datablock",
+    )
+    reverse_playback: BoolProperty(
+        name="Reverse",
+        default=False,
+        description=(
+            "Play this action in reverse order when generating Godot SpriteFrames. "
+            "Does not affect rendered images, only playback order."
+        ),
     )
 
 

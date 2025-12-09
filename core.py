@@ -57,6 +57,30 @@ def compute_action_frame_range(action: Action) -> Tuple[int, int]:
     return int(start), int(end)
 
 
+def compute_effective_action_frame_range(
+    armature: Armature,
+    action: Action,
+) -> Tuple[int, int]:
+    """Compute start/end frames as used on the armature, respecting NLA strip offsets.
+
+    If the action is used in an NLA strip on this armature, the strip's frame range
+    is used. Otherwise, fall back to the raw action.frame_range.
+    """
+    ad = armature.animation_data
+    nla_tracks = getattr(ad, "nla_tracks", None) if ad is not None else None
+
+    if nla_tracks:
+        for track in nla_tracks:
+            for strip in track.strips:
+                if strip.action == action:
+                    start = int(strip.frame_start)
+                    end = int(strip.frame_end)
+                    return start, end
+
+    # Fallback: use the action's own frame range
+    return compute_action_frame_range(action)
+
+
 def estimate_workload(
     scene: Scene,
     directions: int,
