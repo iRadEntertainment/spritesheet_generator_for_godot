@@ -10,7 +10,8 @@ from bpy.types import (
     Scene,
     WindowManager,
     Object,
-    Armature
+    Armature,
+    Action,
 )
 from bpy.props import BoolProperty, PointerProperty
 

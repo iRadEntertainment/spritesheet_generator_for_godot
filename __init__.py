@@ -19,7 +19,7 @@ from .batch_rendering import SGG_OT_execute_batch
 
 bl_info = {
     "name": "Spritesheet Generator for Godot",
-    "author": "Dario",
+    "author": "Dario 'iRadDev' De Vita",
     "version": (0, 1, 0),
     "blender": (4, 4, 0),
     "location": "3D Viewport > N-panel > Sprites",
