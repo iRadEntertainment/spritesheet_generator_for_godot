@@ -15,7 +15,7 @@ from .ops import (
     SGG_OT_toggle_all_armatures,
     SGG_OT_toggle_armature_actions,
 )
-from .batch_rendering import SGG_OT_execute_batch
+from .batch_rendering import SGG_OT_execute_batch, SGG_OT_cancel_batch
 
 
 bl_info = {
@@ -38,6 +38,7 @@ classes = (
     SGG_OT_toggle_all_armatures,
     SGG_OT_toggle_armature_actions,
     SGG_OT_execute_batch,
+    SGG_OT_cancel_batch,
 )
 
 

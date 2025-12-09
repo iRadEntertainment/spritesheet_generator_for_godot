@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import bpy
-from bpy.types import Panel, Context, Scene
+from bpy.types import Panel, Context, Scene, UILayout
 
 from .sgg_classes import SGG_GlobalSettings
 
@@ -44,9 +44,31 @@ class SGG_PT_main_panel(Panel):
 
         layout.separator()
 
-        # --- Plan & Run button ---
-        layout.operator(
-            "sgg.plan_and_run",
-            text="Plan & Run Batch…",
-            icon="SEQ_SEQUENCER",
-        )
+        if not settings.batch_running:
+            # When idle: show the Plan & Run button
+            layout.operator(
+                "sgg.plan_and_run",
+                text="Plan & Run Batch…",
+                icon="SEQ_SEQUENCER",
+            )
+        else:
+            # When running: show progress bar + small X to cancel
+            row: UILayout = layout.row(align=True)
+
+            progress = 0.0
+            if settings.batch_total_frames > 0:
+                progress = settings.batch_processed_frames / settings.batch_total_frames
+
+            # Progress bar (fills most of the row)
+            row.progress(
+                text=f"{settings.batch_processed_frames} / {settings.batch_total_frames} frames",
+                factor=progress,
+                type='BAR',
+            )
+
+            # Little X button on the right
+            row.operator(
+                "sgg.cancel_batch",
+                text="",
+                icon="CANCEL",
+            )

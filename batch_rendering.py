@@ -48,6 +48,22 @@ class SGG_OT_execute_batch(Operator):
                 "No enabled armatures/actions in the current plan.",
             )
             return {'CANCELLED'}
+        
+        # Compute total frames for progress tracking
+        total_frames = 0
+        for action_plan in plan.actions:
+            frame_count = len(list(action_plan.frame_range.frames()))
+            total_frames += frame_count * plan.directions
+
+        settings.batch_total_frames = total_frames
+        settings.batch_processed_frames = 0
+        settings.batch_running = True
+        settings.batch_cancel_requested = False
+
+        # Initialize status bar progress
+        wm = context.window_manager
+        wm.progress_begin(0.0, max(1, total_frames))
+
 
         # Resolve and create output directory
         self._output_dir = bpy.path.abspath(settings.output_dir)
@@ -106,10 +122,16 @@ class SGG_OT_execute_batch(Operator):
             return {'CANCELLED'}
 
         scene: Scene = context.scene
-        settings: SGG_GlobalSettings = scene.sgg_settings  # type: ignore[attr-defined]
+        settings: SGG_GlobalSettings = scene.sgg_settings
+
+        # Check for cancel request from UI
+        if settings.batch_cancel_requested:
+            self._finish_batch(context, cancelled=True)
+            self.report({'WARNING'}, "Batch rendering cancelled by user.") # via button in N-Panel
+            return {'CANCELLED'}
 
         # Render a single frame step. If no more work, we're done.
-        has_more = self._advance_step(scene, settings)
+        has_more = self._advance_step(context, scene, settings)
         if not has_more:
             self._finish_batch(context, cancelled=False)
             self.report({'INFO'}, "[SGG] Batch rendering completed.")
@@ -123,6 +145,7 @@ class SGG_OT_execute_batch(Operator):
 
     def _advance_step(
         self,
+        context: Context,
         scene: Scene,
         settings: SGG_GlobalSettings,
     ) -> bool:
@@ -133,7 +156,16 @@ class SGG_OT_execute_batch(Operator):
 
         action_plan, direction_index, frame = next_item
         self._render_frame(scene, settings, action_plan, direction_index, frame)
+
+        # Update progress counters
+        if settings.batch_total_frames > 0:
+            settings.batch_processed_frames = min(
+                settings.batch_processed_frames + 1,
+                settings.batch_total_frames,
+            )
+
         return True
+
 
     def _next_frame(self) -> Optional[tuple[ActionExecPlan, int, int]]:
         """Iterate over (action, direction, frame) triples."""
@@ -359,11 +391,20 @@ class SGG_OT_execute_batch(Operator):
     def _finish_batch(self, context: Context, cancelled: bool) -> None:
         """Restore scene state, optionally pack spritesheets, and remove the modal timer."""
         scene: Scene = context.scene
+        settings: SGG_GlobalSettings = scene.sgg_settings
         render = scene.render
 
         # If we completed successfully, build spritesheets from rendered frames
         if not cancelled:
             self._assemble_spritesheets(context)
+
+        # Mark batch as no longer running
+        settings.batch_running = False
+        settings.batch_cancel_requested = False
+
+        # If it ended normally, clamp processed to total
+        if not cancelled and settings.batch_total_frames > 0:
+            settings.batch_processed_frames = settings.batch_total_frames
 
         # Restore original frame
         if hasattr(self, "_original_frame"):
@@ -390,3 +431,22 @@ class SGG_OT_execute_batch(Operator):
         self._frame_iter = None
         self._current_action_plan = None
         self._frame_paths = {}
+
+
+class SGG_OT_cancel_batch(Operator):
+    """Request cancellation of the running spritesheet batch."""
+    bl_idname = "sgg.cancel_batch"
+    bl_label = "Cancel Spritesheet Batch"
+    bl_options = {'INTERNAL'}
+
+    def execute(self, context: Context) -> Set[str]:
+        scene: Scene = context.scene
+        settings: SGG_GlobalSettings = scene.sgg_settings  # type: ignore[attr-defined]
+
+        if not settings.batch_running:
+            self.report({'INFO'}, "No batch is currently running.")
+            return {'CANCELLED'}
+
+        settings.batch_cancel_requested = True
+        self.report({'INFO'}, "Batch cancellation requested.")
+        return {'FINISHED'}

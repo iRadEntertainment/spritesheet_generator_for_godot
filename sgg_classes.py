@@ -48,6 +48,7 @@ class SGG_GlobalSettings(PropertyGroup):
         default=True,
         description="Use each action's own frame range by default",
     )
+
     last_frame_render_seconds: FloatProperty(
         name="Last Frame Render Time",
         default=0.0,
@@ -57,6 +58,7 @@ class SGG_GlobalSettings(PropertyGroup):
             "in this Blender session. Used for time estimation."
         ),
     )
+
     delete_frame_pngs: BoolProperty(
         name="Delete Frame PNGs",
         default=True,
@@ -65,6 +67,32 @@ class SGG_GlobalSettings(PropertyGroup):
             "assembled. Uses permanent deletion (files will not be moved to the OS "
             "trash/recycle bin)."
         ),
+    )
+
+    batch_running: BoolProperty(
+        name="Batch Running",
+        default=False,
+        description="True while a batch render is running",
+    )
+
+    batch_cancel_requested: BoolProperty(
+        name="Cancel Batch",
+        default=False,
+        description="Set to request cancellation of the current batch",
+    )
+
+    batch_total_frames: IntProperty(
+        name="Total Frames",
+        default=0,
+        min=0,
+        description="Total number of frames that will be rendered in the current batch",
+    )
+
+    batch_processed_frames: IntProperty(
+        name="Processed Frames",
+        default=0,
+        min=0,
+        description="Number of frames rendered so far in the current batch",
     )
 
 
