@@ -45,8 +45,6 @@ class SGG_OT_plan_and_run(Operator):
         scene: Scene = context.scene
         settings: SGG_GlobalSettings = scene.sgg_settings
 
-        self.report({'INFO'}, "[SGG-Plan and run] Invoked!")
-
         # Build/refresh the planning data on the scene
         self._build_plan(scene, settings)
         
@@ -105,66 +103,99 @@ class SGG_OT_plan_and_run(Operator):
     def draw(self, context: Context) -> None:
         layout = self.layout
         scene: Scene = context.scene
-        settings: SGG_GlobalSettings = scene.sgg_settings
+        settings: SGG_GlobalSettings = scene.sgg_settings  # type: ignore[attr-defined]
         plan = scene.sgg_plan_armatures
 
-        # --- Title ---
-        # layout.label(text="Batch Plan", icon="VIEWZOOM")
+        layout.label(text="Batch Plan", icon="VIEWZOOM")
 
-        # --- Workload summary ---
+        # ------------------------------------------------------
+        # Top row: Workload, Renderer recap, Output summary
+        # ------------------------------------------------------
         total_frames, total_sheets = core.estimate_workload(
             scene,
             directions=settings.directions,
             frame_step=settings.frame_step,
         )
+        max_w, max_h = core.estimate_max_sheet_size(
+            scene,
+            directions=settings.directions,
+            frame_step=settings.frame_step,
+        )
 
-        summary_box = layout.box()
-        summary_box.label(text="Workload Summary")
-        summary_box.label(text=f"Total frames: {total_frames}")
+        top_row = layout.row(align=True)
+
+        # Workload box
+        summary_box = top_row.box()
+        summary_box.label(text="Workload", icon="SETTINGS")
+        summary_box.label(text=f"Frames: {total_frames}")
         summary_box.label(text=f"Spritesheets: {total_sheets}")
+        if max_w > 0 and max_h > 0:
+            summary_box.label(text=f"Max sheet: {max_w} x {max_h}")
+        else:
+            summary_box.label(text="Max sheet: —")
 
         # Last-frame render time (if known)
-        if settings.last_frame_render_seconds > 0.0:
-            summary_box.label(
-                text=f"Last frame render: {settings.last_frame_render_seconds:.2f} s"
-            )
-        else:
-            summary_box.label(text="Last frame render: —")
+        if hasattr(settings, "last_frame_render_seconds"):
+            if settings.last_frame_render_seconds > 0.0:
+                summary_box.label(
+                    text=f"Last frame: {settings.last_frame_render_seconds:.2f} s"
+                )
+            else:
+                summary_box.label(text="Last frame: —")
 
-        layout.separator()
+        # Renderer recap
+        render_box = top_row.box()
+        render_box.label(text="Renderer", icon="RENDER_STILL")
+        render = scene.render
+        render_box.label(text=f"Engine: {render.engine}")
+        render_box.label(
+            text=f"Res: {render.resolution_x} x {render.resolution_y} @ {render.resolution_percentage}%"
+        )
 
-        # --- Global bulk controls ---
-        row = layout.row(align=True)
-        row.operator(
-            "sgg.toggle_all_armatures",
-            text="Select All",
-            icon="CHECKBOX_HLT",
-        ).enable = True
-        row.operator(
-            "sgg.toggle_all_armatures",
-            text="Deselect All",
-            icon="CHECKBOX_DEHLT",
-        ).enable = False
+        # Output summary
+        output_box = top_row.box()
+        output_box.label(text="Output", icon="FILE_FOLDER")
+        output_box.label(text=bpy.path.abspath(settings.output_dir))
+        output_box.label(
+            text=f"Directions: {settings.directions}, Step: {settings.frame_step}"
+        )
 
         layout.separator()
 
         # --- Camera selection ---
         cam_box = layout.box()
-        cam_box.label(text="Camera")
+        cam_box.label(text="Camera", icon="CAMERA_DATA")
         cam_box.prop(self, "camera")
-
+        
         layout.separator()
-
-        # --- Armatures & actions list ---
-
+        
+        # ------------------------------------------------------
+        # Armatures & actions list (with bulk controls inside)
+        # ------------------------------------------------------
         box = layout.box()
-        box.label(text="Armatures & Actions")
+        header_row = box.row(align=True)
+        header_row.label(text="Armatures & Actions")
+
+        # Bulk select/deselect all INSIDE this panel
+        bulk_row = header_row.row(align=True)
+        op = bulk_row.operator(
+            "sgg.toggle_all_armatures",
+            text="",
+            icon="CHECKBOX_HLT",
+        )
+        op.enable = True
+        op = bulk_row.operator(
+            "sgg.toggle_all_armatures",
+            text="",
+            icon="CHECKBOX_DEHLT",
+        )
+        op.enable = False
 
         if not plan:
             box.label(text="No armatures/actions found. Check the collection.", icon="ERROR")
         else:
             for arm_index, arm_item in enumerate(plan):
-                # Armature row (checkbox + collapse triangle + name + summary + per-armature toggles)
+                # Armature row (checkbox + collapse triangle + name + small summary)
                 arm_row = box.row(align=True)
 
                 # Armature enabled checkbox
@@ -192,25 +223,25 @@ class SGG_OT_plan_and_run(Operator):
 
                 # Per-armature select / deselect all actions
                 ops_row = arm_row.row(align=True)
-                op = ops_row.operator(
-                    "sgg.toggle_armature_actions",
-                    text="",
-                    icon="CHECKBOX_HLT",
-                )
-                op.enable = True
-                op.armature_index = arm_index
+                if hasattr(bpy.ops.sgg, "toggle_armature_actions"):
+                    op = ops_row.operator(
+                        "sgg.toggle_armature_actions",
+                        text="",
+                        icon="CHECKBOX_HLT",
+                    )
+                    op.enable = True
+                    op.armature_index = arm_index
 
-                op = ops_row.operator(
-                    "sgg.toggle_armature_actions",
-                    text="",
-                    icon="CHECKBOX_DEHLT",
-                )
-                op.enable = False
-                op.armature_index = arm_index
+                    op = ops_row.operator(
+                        "sgg.toggle_armature_actions",
+                        text="",
+                        icon="CHECKBOX_DEHLT",
+                    )
+                    op.enable = False
+                    op.armature_index = arm_index
 
                 # Actions for this armature
                 actions_col = box.column(align=True)
-                # Disable the whole actions block when the armature is disabled
                 actions_col.enabled = arm_item.enabled
 
                 if arm_item.ui_expanded:
@@ -226,18 +257,17 @@ class SGG_OT_plan_and_run(Operator):
                             icon="ACTION",
                         )
 
-                        # Reversed playback toggle (for later Godot SpriteFrames use)
-                        act_row.prop(
-                            act_item,
-                            "reverse_playback",
-                            text="",
-                            icon="ARROW_LEFTRIGHT",
-                        )
+                        # Optional: reverse flag, if you added it earlier
+                        if hasattr(act_item, "reverse_playback"):
+                            act_row.prop(
+                                act_item,
+                                "reverse_playback",
+                                text="",
+                                icon="ARROW_LEFTRIGHT",
+                            )
 
                         act_row.prop(act_item, "frame_start", text="Start")
                         act_row.prop(act_item, "frame_end", text="End")
-
-        layout.separator()
 
 
     def execute(self, context: Context) -> Set[str]:

@@ -12,7 +12,7 @@ class SGG_PT_main_panel(Panel):
     bl_label = "Spritesheet Generator"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = "Sprites"
+    bl_category = "GodotSpriteFrames"
 
     def draw(self, context: Context) -> None:
         layout = self.layout
@@ -41,17 +41,6 @@ class SGG_PT_main_panel(Panel):
             "delete_frame_pngs",
             text="Delete frame PNGs after packing",
         )
-
-        layout.separator()
-
-        # --- Renderer recap (read-only) ---
-        box = layout.box()
-        box.label(text="Renderer Recap", icon="INFO")
-
-        render = scene.render
-        box.label(text=f"Engine: {render.engine}")
-        box.label(text=f"Resolution: {render.resolution_x} x {render.resolution_y}")
-        box.label(text=f"Percentage: {render.resolution_percentage}%")
 
         layout.separator()
 

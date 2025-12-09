@@ -118,6 +118,53 @@ def estimate_workload(
 
     return total_frames, total_sheets
 
+
+def estimate_max_sheet_size(
+    scene: Scene,
+    directions: int,
+    frame_step: int,
+) -> Tuple[int, int]:
+    """Estimate how large the biggest spritesheet would be.
+
+    Assumes a layout where:
+    - Columns = frames per action (after applying frame_step)
+    - Rows    = directions
+
+    Returns:
+        (max_width_px, max_height_px), or (0, 0) if nothing is enabled.
+    """
+    render = scene.render
+    plan = scene.sgg_plan_armatures
+
+    max_frames_for_any_action = 0
+
+    for arm_item in plan:
+        if not arm_item.enabled:
+            continue
+
+        for act_item in arm_item.actions:
+            if not act_item.enabled:
+                continue
+
+            frame_count = max(0, act_item.frame_end - act_item.frame_start + 1)
+            if frame_step > 1 and frame_count > 0:
+                # ceil division
+                frame_count = (frame_count + frame_step - 1) // frame_step
+
+            if frame_count > max_frames_for_any_action:
+                max_frames_for_any_action = frame_count
+
+    if max_frames_for_any_action == 0:
+        return 0, 0
+
+    directions = max(1, directions)
+
+    width_px = render.resolution_x * max_frames_for_any_action
+    height_px = render.resolution_y * directions
+
+    return width_px, height_px
+
+
 # -------------------------------------------------------------------
 # Execution plan (pure Python, built from the scene plan)
 # -------------------------------------------------------------------

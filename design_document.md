@@ -90,7 +90,7 @@ spritesheet_generator_for_godot/
 
 Located in:
 ```
-3D Viewport → Sidebar (N) → Sprites
+3D Viewport → Sidebar (N) → GodotSpriteFrames
 ```
 
 ### Global Settings

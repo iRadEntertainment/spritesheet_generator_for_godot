@@ -27,7 +27,7 @@ bl_info = {
     "author": "Dario 'iRad' De Vita",
     "version": (0, 1, 0),
     "blender": (4, 4, 0),
-    "location": "3D View > N-panel > Sprites",
+    "location": "3D View > N-panel > GodotSpriteFrames",
     "description": "Export armature actions as sprite sheets for 2D games.",
     "category": "Render",
 }
@@ -359,7 +359,7 @@ class SPRITE_PT_export_panel(bpy.types.Panel):
     bl_idname = "SPRITE_PT_export_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'Sprites'
+    bl_category = 'GodotSpriteFrames'
 
     def draw(self, context):
         layout = self.layout
