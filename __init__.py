@@ -14,6 +14,7 @@ from .ops import (
     SGG_OT_plan_and_run,
     SGG_OT_toggle_all_armatures,
     SGG_OT_toggle_armature_actions,
+    SGG_OT_reset_action_range,
 )
 from .batch_rendering import SGG_OT_execute_batch, SGG_OT_cancel_batch
 
@@ -37,6 +38,7 @@ classes = (
     SGG_OT_plan_and_run,
     SGG_OT_toggle_all_armatures,
     SGG_OT_toggle_armature_actions,
+    SGG_OT_reset_action_range,
     SGG_OT_execute_batch,
     SGG_OT_cancel_batch,
 )

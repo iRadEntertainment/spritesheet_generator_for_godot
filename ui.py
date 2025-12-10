@@ -28,6 +28,12 @@ class SGG_PT_main_panel(Panel):
 
         layout.separator()
 
+        cam_box = layout.box()
+        cam_box.label(text="Camera", icon="CAMERA_DATA")
+        cam_box.prop(settings, "camera")
+
+        layout.separator()
+
         col = layout.column(align=True)
         col.prop(settings, "directions")
         col.prop(settings, "frame_step")

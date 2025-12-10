@@ -47,16 +47,18 @@ class SGG_OT_plan_and_run(Operator):
 
         # Build/refresh the planning data on the scene
         self._build_plan(scene, settings)
-        
-        # Set default camera:
-        # - Prefer the scene camera if it is a camera object
-        # - Otherwise, fall back to the first camera found in the scene
-        cam = scene.camera
+
+        # Prefer the global settings camera if set
+        cam = getattr(settings, "camera", None)
+
+        # If not set, fall back to scene camera or first camera in scene
         if cam is None or cam.type != 'CAMERA':
-            for obj in scene.objects:
-                if obj.type == 'CAMERA':
-                    cam = obj
-                    break
+            cam = scene.camera
+            if cam is None or cam.type != 'CAMERA':
+                for obj in scene.objects:
+                    if obj.type == 'CAMERA':
+                        cam = obj
+                        break
 
         if cam is not None:
             self.camera = cam
@@ -170,22 +172,22 @@ class SGG_OT_plan_and_run(Operator):
         summary_box = top_row.box()
         summary_box.label(text="Workload", icon="SETTINGS")
         summary_box.label(text=f"Frames: {total_frames}")
-        summary_box.label(text=f"Spritesheets: {total_sheets}")
-        if max_w > 0 and max_h > 0:
-            summary_box.label(text=f"Max sheet: {max_w} x {max_h}")
-        else:
-            summary_box.label(text="Max sheet: —")
+        summary_box.label(
+            text=f"Directions: {settings.directions}, Step: {settings.frame_step}"
+        )
+        # ETA based on last_frame_render_seconds
+        eta_text = "ETA: -"
+        if (
+            total_frames > 0
+            and getattr(settings, "last_frame_render_seconds", 0.0) > 0.0
+        ):
+            eta_seconds = total_frames * settings.last_frame_render_seconds
+            minutes = int(eta_seconds // 60)
+            seconds = int(eta_seconds % 60)
+            eta_text = f"ETA: {minutes:02d}:{seconds:02d}"
+        summary_box.label(text=eta_text)
 
-        # Last-frame render time (if known)
-        if hasattr(settings, "last_frame_render_seconds"):
-            if settings.last_frame_render_seconds > 0.0:
-                summary_box.label(
-                    text=f"Last frame: {settings.last_frame_render_seconds:.2f} s"
-                )
-            else:
-                summary_box.label(text="Last frame: —")
-
-        # Renderer recap
+        # Renderer box
         render_box = top_row.box()
         render_box.label(text="Renderer", icon="RENDER_STILL")
         render = scene.render
@@ -193,14 +195,24 @@ class SGG_OT_plan_and_run(Operator):
         render_box.label(
             text=f"Res: {render.resolution_x} x {render.resolution_y} @ {render.resolution_percentage}%"
         )
+        if getattr(settings, "last_frame_render_seconds", 0.0) > 0.0:
+            render_box.label(
+                text=f"Last frame: {settings.last_frame_render_seconds:.2f} s"
+            )
+        else:
+            render_box.label(text="Last frame: -")
 
-        # Output summary
+        # Output box
         output_box = top_row.box()
         output_box.label(text="Output", icon="FILE_FOLDER")
         output_box.label(text=bpy.path.abspath(settings.output_dir))
-        output_box.label(
-            text=f"Directions: {settings.directions}, Step: {settings.frame_step}"
-        )
+        output_box.label(text=f"Spritesheets: {total_sheets}")
+
+        if max_w > 0 and max_h > 0:
+            output_box.label(text=f"Max sheet dimensions: {max_w} x {max_h} px")
+        else:
+            output_box.label(text="Max sheet: -")
+
 
         layout.separator()
 
@@ -287,11 +299,10 @@ class SGG_OT_plan_and_run(Operator):
                 actions_col.enabled = arm_item.enabled
 
                 if arm_item.ui_expanded:
-                    for act_item in arm_item.actions:
+                    for act_index, act_item in enumerate(arm_item.actions):
                         act_row = actions_col.row(align=True)
                         act_row.separator(factor=2.0)
 
-                        # Checkbox shows the action name so clicking the text toggles it
                         act_row.prop(
                             act_item,
                             "enabled",
@@ -299,7 +310,6 @@ class SGG_OT_plan_and_run(Operator):
                             icon="ACTION",
                         )
 
-                        # Optional: reverse flag, if you added it earlier
                         if hasattr(act_item, "reverse_playback"):
                             act_row.prop(
                                 act_item,
@@ -310,6 +320,23 @@ class SGG_OT_plan_and_run(Operator):
 
                         act_row.prop(act_item, "frame_start", text="Start")
                         act_row.prop(act_item, "frame_end", text="End")
+
+                        # Per-action frame step override
+                        if hasattr(act_item, "frame_step_override"):
+                            act_row.prop(
+                                act_item,
+                                "frame_step_override",
+                                text="Step",
+                            )
+                        
+                        # Reset frame range button
+                        reset_op = act_row.operator(
+                            "sgg.reset_action_range",
+                            text="",
+                            icon="LOOP_BACK",
+                        )
+                        reset_op.armature_index = arm_index
+                        reset_op.action_index = act_index
 
 
     def execute(self, context: Context) -> Set[str]:
@@ -376,5 +403,54 @@ class SGG_OT_toggle_armature_actions(Operator):
         arm_item: SGG_ArmaturePlanItem = plan[self.armature_index]
         for act_item in arm_item.actions:
             act_item.enabled = self.enable
+
+        return {'FINISHED'}
+
+
+class SGG_OT_reset_action_range(Operator):
+    """Reset an action's frame range to the effective range from NLA/Action."""
+    bl_idname = "sgg.reset_action_range"
+    bl_label = "Reset Action Frame Range"
+    bl_options = {'INTERNAL'}
+
+    armature_index: IntProperty(
+        name="Armature Index",
+        default=-1,
+        description="Index of the armature in the planning collection",
+    )
+
+    action_index: IntProperty(
+        name="Action Index",
+        default=-1,
+        description="Index of the action in the armature's action list",
+    )
+
+    def execute(self, context: Context) -> Set[str]:
+        scene: Scene = context.scene
+        plan = scene.sgg_plan_armatures
+
+        if (
+            self.armature_index < 0
+            or self.armature_index >= len(plan)
+        ):
+            return {'CANCELLED'}
+
+        arm_item: SGG_ArmaturePlanItem = plan[self.armature_index]
+        if (
+            self.action_index < 0
+            or self.action_index >= len(arm_item.actions)
+        ):
+            return {'CANCELLED'}
+
+        act_item: SGG_ActionPlanItem = arm_item.actions[self.action_index]
+        arm_obj = arm_item.armature
+        action = act_item.action
+
+        if arm_obj is None or action is None:
+            return {'CANCELLED'}
+
+        start, end = core.compute_effective_action_frame_range(arm_obj, action)
+        act_item.frame_start = start
+        act_item.frame_end = end
 
         return {'FINISHED'}

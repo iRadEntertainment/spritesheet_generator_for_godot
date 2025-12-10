@@ -21,6 +21,13 @@ class SGG_GlobalSettings(PropertyGroup):
         description="Collection containing the armatures to process",
     )
 
+    camera: PointerProperty(
+        name="Camera",
+        type=bpy.types.Object,
+        description="Camera to use for batch rendering",
+        poll=lambda self, obj: obj.type == 'CAMERA',
+    )
+
     output_dir: StringProperty(
         name="Output Directory",
         subtype='DIR_PATH',
@@ -154,6 +161,15 @@ class SGG_ActionPlanItem(PropertyGroup):
     name: StringProperty(
         name="Action Name",
         default="",
+    )
+
+    frame_step_override: IntProperty(
+        name="Step Override",
+        default=0,
+        description=(
+            "Optional frame step for this action. When > 0, overrides the global "
+            "frame step set in the main panel"
+        ),
     )
 
     frame_start: IntProperty(

@@ -106,11 +106,17 @@ def estimate_workload(
                 continue
 
             has_enabled_action = True
+            
             frame_count = max(0, act_item.frame_end - act_item.frame_start + 1)
-            # Apply frame step (at least 1 frame if enabled)
-            if frame_step > 1 and frame_count > 0:
+
+            # Per-action step override (0 means "use global")
+            local_step = int(getattr(act_item, "frame_step_override", 0)) or frame_step
+            local_step = max(1, int(local_step))
+
+            if local_step > 1 and frame_count > 0:
                 # ceil division
-                frame_count = (frame_count + frame_step - 1) // frame_step
+                frame_count = (frame_count + local_step - 1) // local_step
+
             total_frames += frame_count * max(1, directions)
 
         if has_enabled_action:
@@ -147,9 +153,12 @@ def estimate_max_sheet_size(
                 continue
 
             frame_count = max(0, act_item.frame_end - act_item.frame_start + 1)
-            if frame_step > 1 and frame_count > 0:
-                # ceil division
-                frame_count = (frame_count + frame_step - 1) // frame_step
+
+            local_step = int(getattr(act_item, "frame_step_override", 0)) or frame_step
+            local_step = max(1, int(local_step))
+
+            if local_step > 1 and frame_count > 0:
+                frame_count = (frame_count + local_step - 1) // local_step
 
             if frame_count > max_frames_for_any_action:
                 max_frames_for_any_action = frame_count
@@ -231,11 +240,15 @@ class BatchExecPlan:
                     # Ignore invalid ranges; they should already be prevented by the UI,
                     # but we keep this check for robustness.
                     continue
+                
+                # Per-action step override (0 means "use global")
+                local_step = int(getattr(act_item, "frame_step_override", 0)) or frame_step
+                local_step = max(1, int(local_step))
 
                 frame_range = FrameRangePlan(
                     start=start,
                     end=end,
-                    step=step,
+                    step=local_step,
                 )
 
                 actions.append(
