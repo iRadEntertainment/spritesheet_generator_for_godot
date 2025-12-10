@@ -66,38 +66,80 @@ class SGG_OT_plan_and_run(Operator):
 
 
     def _build_plan(self, scene: Scene, settings: SGG_GlobalSettings) -> None:
-        """Populate scene.sgg_plan_armatures based on current settings."""
+        """Synchronize scene.sgg_plan_armatures with current armatures/actions.
+
+        This preserves existing user edits (enabled flags, frame ranges, reverse
+        flags, expansion state) and only adds/removes items as needed.
+        """
         collection = settings.armature_collection
         plan = scene.sgg_plan_armatures
 
-        # Clear previous plan
-        self.report({'INFO'}, "[SGG] Building plan...")
-        plan.clear()
+        self.report({'INFO'}, "[SGG] Syncing plan with scene...")
 
         if collection is None:
             return
 
+        # Current armatures from the chosen collection
         armatures = core.find_armatures_in_collection(collection)
+        armature_set = set(armatures)
 
+        # Map existing plan items by armature object
+        existing_arms_by_obj: dict[Object, SGG_ArmaturePlanItem] = {}
+        for arm_item in plan:
+            arm_item: SGG_ArmaturePlanItem
+            if arm_item.armature is not None:
+                existing_arms_by_obj[arm_item.armature] = arm_item
+
+        # Ensure we have a plan item for each current armature
         for obj in armatures:
-            actions = core.find_actions_for_armature(obj) # type: ignore
-            if not actions:
-                continue
+            arm_item = existing_arms_by_obj.get(obj) # type: ignore
+            if arm_item is None:
+                # New armature in the scene/collection: create a fresh plan item
+                arm_item = plan.add()
+                arm_item.armature = obj
+                arm_item.name = obj.name
+                arm_item.enabled = True
+                arm_item.ui_expanded = True
 
-            arm_item: SGG_ArmaturePlanItem = plan.add()
-            arm_item.enabled = False
-            arm_item.name = obj.name
-            arm_item.armature = obj
+            # Sync actions for this armature
+            actions = core.find_actions_for_armature(obj)  # type: ignore[assignment]
+            actions_set = set(actions)
 
+            # Map existing action plan items by Action datablock
+            existing_actions_by_action: dict[Action, SGG_ActionPlanItem] = {}
+            for act_item in arm_item.actions:
+                act_item: SGG_ActionPlanItem
+                if act_item.action is not None:
+                    existing_actions_by_action[act_item.action] = act_item
+
+            # Ensure we have an action plan item for each current action
+            seen_actions: set[Action] = set()
             for action in actions:
-                act_item: SGG_ActionPlanItem = arm_item.actions.add()
-                act_item.enabled = False
-                act_item.name = action.name
-                act_item.action = action
+                act_item = existing_actions_by_action.get(action) # type: ignore
+                if act_item is None:
+                    # New action found: create a fresh plan entry with default range
+                    act_item = arm_item.actions.add()
+                    act_item.action = action
+                    act_item.name = action.name
+                    act_item.enabled = False  # new actions start disabled
+                    start, end = core.compute_effective_action_frame_range(obj, action)
+                    act_item.frame_start = start
+                    act_item.frame_end = end
+                    # reverse_playback and other flags keep their default values
+                seen_actions.add(action)
 
-                start, end = core.compute_effective_action_frame_range(obj, action)
-                act_item.frame_start = start
-                act_item.frame_end = end
+            # Remove action items whose underlying Action no longer exists / used
+            for idx in reversed(range(len(arm_item.actions))):
+                act_item = arm_item.actions[idx]
+                if act_item.action is None or act_item.action not in seen_actions:
+                    arm_item.actions.remove(idx)
+
+        # Remove armature plan items whose armature is no longer valid / in collection
+        for idx in reversed(range(len(plan))):
+            arm_item = plan[idx]
+            if arm_item.armature is None or arm_item.armature not in armature_set:
+                plan.remove(idx)
+
 
 
     def draw(self, context: Context) -> None:
