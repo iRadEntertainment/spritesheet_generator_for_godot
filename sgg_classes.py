@@ -95,6 +95,52 @@ class SGG_GlobalSettings(PropertyGroup):
         description="Number of frames rendered so far in the current batch",
     )
 
+    current_armature_name: StringProperty(
+        name="Current Armature",
+        default="",
+        description="Name of the armature currently being rendered in the batch",
+    )
+
+    current_action_name: StringProperty(
+        name="Current Action",
+        default="",
+        description="Name of the action currently being rendered in the batch",
+    )
+
+    current_direction_index: IntProperty(
+        name="Current Direction Index",
+        default=0,
+        min=0,
+        description="Zero-based index of the current direction being rendered",
+    )
+
+    current_direction_count: IntProperty(
+        name="Direction Count",
+        default=0,
+        min=0,
+        description="Total number of directions in this batch",
+    )
+
+    current_frame: IntProperty(
+        name="Current Frame",
+        default=0,
+        description="Current frame index being rendered in the batch",
+    )
+
+    current_action_index: IntProperty(
+        name="Current Action Index",
+        default=0,
+        min=0,
+        description="Zero-based index of the current action in the batch",
+    )
+
+    total_actions: IntProperty(
+        name="Total Actions",
+        default=0,
+        min=0,
+        description="Total number of actions in the current batch",
+    )
+
 
 class SGG_ActionPlanItem(PropertyGroup):
     """Planning data for a single action of an armature."""

@@ -52,23 +52,76 @@ class SGG_PT_main_panel(Panel):
                 icon="SEQ_SEQUENCER",
             )
         else:
-            # When running: show progress bar + small X to cancel
-            row: UILayout = layout.row(align=True)
+            row = layout.row(align=True)
 
             progress = 0.0
             if settings.batch_total_frames > 0:
                 progress = settings.batch_processed_frames / settings.batch_total_frames
 
-            # Progress bar (fills most of the row)
             row.progress(
                 text=f"{settings.batch_processed_frames} / {settings.batch_total_frames} frames",
                 factor=progress,
                 type='BAR',
             )
 
-            # Little X button on the right
             row.operator(
                 "sgg.cancel_batch",
                 text="",
                 icon="CANCEL",
             )
+
+            # Extra info inside an info box: action, direction, frame, ETA
+            box = layout.box()
+            box.label(text="Batch Info", icon="INFO")
+
+            info_col = box.column(align=True)
+
+            # Current action / armature
+            if settings.current_action_name and settings.total_actions > 0:
+                action_idx = settings.current_action_index + 1  # human-friendly
+                info_col.label(
+                    text=(
+                        f"Action ({action_idx}/{settings.total_actions}): "
+                        f"{settings.current_action_name}"
+                    )
+                )
+            elif settings.current_action_name:
+                info_col.label(text=f"Action: {settings.current_action_name}")
+            else:
+                info_col.label(text="Action: -")
+
+            if settings.current_armature_name:
+                info_col.label(text=f"Armature: {settings.current_armature_name}")
+            else:
+                info_col.label(text="Armature: -")
+
+            # Direction info
+            if settings.current_direction_count > 0:
+                dir_idx = settings.current_direction_index + 1  # 1-based for humans
+                dir_text = f"Direction: {dir_idx}/{settings.current_direction_count}"
+            else:
+                dir_text = "Direction: -"
+            info_col.label(text=dir_text)
+
+            # Frame info
+            if settings.current_frame > 0:
+                info_col.label(text=f"Frame: {settings.current_frame}")
+            else:
+                info_col.label(text="Frame: -")
+
+            # ETA based on last_frame_render_seconds
+            eta_text = "-"
+            remaining_frames = max(
+                0,
+                settings.batch_total_frames - settings.batch_processed_frames,
+            )
+            if (
+                remaining_frames > 0
+                and getattr(settings, "last_frame_render_seconds", 0.0) > 0.0
+            ):
+                eta_seconds = remaining_frames * settings.last_frame_render_seconds
+                minutes = int(eta_seconds // 60)
+                seconds = int(eta_seconds % 60)
+                eta_text = f"{minutes:02d}:{seconds:02d}"
+
+            info_col.label(text=f"ETA: {eta_text}")
