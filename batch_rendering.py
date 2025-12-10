@@ -3,6 +3,7 @@ from __future__ import annotations
 import bpy
 import os
 import time
+import math
 from typing import Set, Optional, Dict, Iterator
 
 from bpy.types import Operator, Context, Scene, Object
@@ -59,6 +60,7 @@ class SGG_OT_execute_batch(Operator):
         settings.batch_processed_frames = 0
         settings.batch_running = True
         settings.batch_cancel_requested = False
+        settings.total_actions = len(plan.actions)
 
         # Initialize status bar progress
         wm = context.window_manager
@@ -83,11 +85,37 @@ class SGG_OT_execute_batch(Operator):
 
         # Save original active actions per armature used in the plan
         self._original_actions = {}
+        self._original_nla_state = {}
+        self._original_rotations = {}
         for action_plan in plan.actions:
             arm_obj = action_plan.armature_obj
-            if arm_obj not in self._original_actions:
-                ad = arm_obj.animation_data
-                self._original_actions[arm_obj] = ad.action if ad else None
+            if arm_obj in self._original_actions:
+                continue
+
+            # Original action
+            ad = arm_obj.animation_data
+            self._original_actions[arm_obj] = ad.action if ad else None
+
+            # Original NLA state (we'll restore this later)
+            if ad is not None:
+                nla_state = {
+                    "use_nla": ad.use_nla,
+                    "tracks": [],
+                }
+                for track in ad.nla_tracks:
+                    nla_state["tracks"].append(
+                        {
+                            "track": track,
+                            "mute": track.mute,
+                            "solo": track.is_solo,
+                        }
+                    )
+                self._original_nla_state[arm_obj] = nla_state
+            else:
+                self._original_nla_state[arm_obj] = None
+
+            # Original rotation (we only rotate around Z)
+            self._original_rotations[arm_obj] = arm_obj.rotation_euler.copy()
 
         # Set up modal timer
         wm = context.window_manager
@@ -200,6 +228,64 @@ class SGG_OT_execute_batch(Operator):
                 self._direction_index += 1
                 continue
 
+
+    def _apply_direction_rotation(self, arm_obj: Object, direction_index: int) -> None:
+        """Rotate the armature around Z based on direction index.
+
+        We rotate 360° / directions per step, keeping the original Z as the base.
+        """
+        if self._plan is None:
+            return
+
+        directions = max(1, self._plan.directions)
+
+        base_rot = self._original_rotations.get(arm_obj)
+        if base_rot is not None:
+            base_z = base_rot.z
+        else:
+            base_z = arm_obj.rotation_euler.z
+
+        step = (2.0 * math.pi) / directions
+        rot = arm_obj.rotation_euler
+        rot.z = base_z + step * direction_index
+        arm_obj.rotation_euler = rot
+
+
+    def _set_action_for_render(self, arm_obj: Object, action) -> None:
+        """Configure NLA/Action so that the given action is the one being evaluated.
+
+        Strategy:
+        - If the action is found in an NLA track, enable NLA and solo that track.
+        - Otherwise, disable NLA and set animation_data.action directly.
+        """
+        ad = arm_obj.animation_data
+        if ad is None:
+            ad = arm_obj.animation_data_create()
+
+        found_track = None
+        if ad.nla_tracks:
+            for track in ad.nla_tracks:
+                for strip in track.strips:
+                    if strip.action == action:
+                        found_track = track
+                        break
+                if found_track:
+                    break
+
+        if found_track is not None:
+            # Use NLA and solo the track containing this action
+            ad.use_nla = True
+            for track in ad.nla_tracks:
+                is_this = (track == found_track)
+                track.is_solo = is_this
+                # To be extra safe, mute others while keeping this one unmuted
+                track.mute = not is_this
+        else:
+            # Fallback: use the active action slot and ignore NLA
+            ad.use_nla = False
+            ad.action = action
+
+
     def _render_frame(
         self,
         scene: Scene,
@@ -216,12 +302,19 @@ class SGG_OT_execute_batch(Operator):
         arm_obj = action_plan.armature_obj
         action = action_plan.action
 
-        # Ensure the correct action is active on the armature
-        if not arm_obj.animation_data:
-            arm_obj.animation_data_create()
-        arm_obj.animation_data.action = action
+        # Update current item info for the UI
+        settings.current_armature_name = arm_obj.name
+        settings.current_action_name = action.name
+        settings.current_action_index = self._action_index
+        settings.current_direction_index = direction_index
+        settings.current_direction_count = self._plan.directions if self._plan else 0
+        settings.current_frame = frame
 
-        # TODO: apply camera/armature rotation based on direction_index
+        # Ensure the correct action is active / soloed
+        self._set_action_for_render(arm_obj, action)
+
+        # Apply direction-based rotation around Z
+        self._apply_direction_rotation(arm_obj, direction_index)
 
         # Set the frame
         scene.frame_set(frame)
@@ -402,9 +495,38 @@ class SGG_OT_execute_batch(Operator):
         settings.batch_running = False
         settings.batch_cancel_requested = False
 
+        # Restore NLA state and rotations for all armatures
+        if hasattr(self, "_original_nla_state"):
+            for arm_obj, nla_state in self._original_nla_state.items():
+                ad = arm_obj.animation_data
+                if ad is None or nla_state is None:
+                    continue
+
+                ad.use_nla = nla_state.get("use_nla", ad.use_nla)
+                for t_state in nla_state.get("tracks", []):
+                    track = t_state.get("track")
+                    if track is None:
+                        continue
+                    track.mute = t_state.get("mute", track.mute)
+                    track.is_solo = t_state.get("solo", track.is_solo)
+
+        if hasattr(self, "_original_rotations"):
+            for arm_obj, rot in self._original_rotations.items():
+                arm_obj.rotation_euler = rot
+
         # If it ended normally, clamp processed to total
         if not cancelled and settings.batch_total_frames > 0:
             settings.batch_processed_frames = settings.batch_total_frames
+        
+        # Clear current item info
+        settings.current_armature_name = ""
+        settings.current_action_name = ""
+        settings.current_direction_index = 0
+        settings.current_direction_count = 0
+        settings.current_frame = 0
+        settings.current_action_index = 0
+        settings.total_actions = 0
+
 
         # Restore original frame
         if hasattr(self, "_original_frame"):
